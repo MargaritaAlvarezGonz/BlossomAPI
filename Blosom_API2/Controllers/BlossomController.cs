@@ -1,4 +1,5 @@
-﻿using Blosom_API2.Data;
+﻿using AutoMapper;
+using Blosom_API2.Data;
 using Blossom_API.Data;
 using Blossom_API.Models;
 using Blossom_API.Models.Dto;
@@ -15,25 +16,30 @@ namespace Blossom_API.Controllers
     {
         private readonly ILogger<BlossomController> _logger;
         private readonly ApplicationDbContext _db;
-        public BlossomController(ILogger<BlossomController> logger, ApplicationDbContext db) 
+        private readonly IMapper _mapper;
+        public BlossomController(ILogger<BlossomController> logger, ApplicationDbContext db, IMapper mapper ) 
         {
             _logger = logger;
             _db = db;
+            _mapper = mapper;
         }
 
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public ActionResult<IEnumerable<BlossomDto>> GetBlossom()
+        public async Task<ActionResult<IEnumerable<BlossomDto>>> GetBlossom()
         {
             _logger.LogInformation("See all products");
-            return Ok(_db.Blossoms.ToList());
+
+            IEnumerable<Blossom> productList = await _db.Blossoms.ToListAsync();
+            
+            return Ok(_mapper.Map<IEnumerable<BlossomDto>>(productList));
         }
 
         [HttpGet("id", Name = "GetBlossomProduct")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public ActionResult<BlossomDto> GetBlossom(int id)
+        public async Task<ActionResult<BlossomDto>> GetBlossom(int id)
         {
             if (id == 0)
             {
@@ -42,14 +48,14 @@ namespace Blossom_API.Controllers
             }
 
             //var blossom = BlossomStore.blossomList.FirstOrDefault(v => v.Id == id);
-            var blossom = _db.Blossoms.FirstOrDefault(v => v.Id == id);
+            var blossom = await _db.Blossoms.FirstOrDefaultAsync(v => v.Id == id);
 
             if (blossom == null)
             {
                 return NotFound();
             }
 
-            return Ok(blossom);
+            return Ok(_mapper.Map<BlossomDto>(blossom));
 
         }
 
@@ -58,58 +64,48 @@ namespace Blossom_API.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
 
-        public ActionResult<BlossomDto> PostProduct([FromBody] BlossomDto blossomDto)
+        public async Task<ActionResult<BlossomDto>> PostProduct([FromBody] BlossomCreateDto createDto)
         {
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
-            if (_db.Blossoms.FirstOrDefault(v => v.Name.ToLower() == blossomDto.Name.ToLower()) != null)
+            if (await _db.Blossoms.FirstOrDefaultAsync(v => v.Name.ToLower() == createDto.Name.ToLower()) != null)
             {
                 ModelState.AddModelError("NameExist", "The product with that name already exists");
                 return BadRequest(ModelState);
             }
-            if (blossomDto == null)
+            if (createDto == null)
             {
-                return BadRequest(blossomDto);
+                return BadRequest(createDto);
             }
-            if (blossomDto.Id > 0)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError);
-            }
-            Blossom model = new()
-            {
-                Name = blossomDto.Name,
-                ProductDescrip = blossomDto.ProductDescrip,
-                Price = blossomDto.Price,
-                Brand = blossomDto.Brand,
-                ImageUrl = blossomDto.ImageUrl,
+            
+            Blossom model = _mapper.Map<Blossom>(createDto);
+            
 
-            };
+            await _db.Blossoms.AddAsync(model);
+            await _db.SaveChangesAsync();
 
-            _db.Blossoms.Add(model);
-            _db.SaveChanges();
-
-            return CreatedAtRoute("GetBlossomProduct", new { id = blossomDto.Id }, blossomDto);
+            return CreatedAtRoute("GetBlossomProduct", new { id = model.Id }, model);
         }
 
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:int}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public IActionResult DeleteProduct(int id)
+        public async Task<IActionResult> DeleteProduct(int id)
         {
             if (id == 0)
             {
                 return BadRequest();
             }
-            var blossom = _db.Blossoms.FirstOrDefault(v => v.Id == id);
+            var blossom = await _db.Blossoms.FirstOrDefaultAsync(v => v.Id == id);
             if (blossom == null)
             {
                 return NotFound();
             }
             _db.Blossoms.Remove(blossom);
-            _db.SaveChanges();
+            await _db.SaveChangesAsync();
 
             return NoContent();
         }
@@ -117,55 +113,33 @@ namespace Blossom_API.Controllers
         [HttpPut("{id:int}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public IActionResult UpdateProduct(int id, [FromBody] BlossomDto blossomDto)
+        public async Task<IActionResult> UpdateProduct(int id, [FromBody] BlossomUpdateDto updateDto)
         {
-            if (blossomDto == null || id!= blossomDto.Id)
+            if (updateDto == null || id!= updateDto.Id)
             {
                 return BadRequest();
             }
-            //var blossom = BlossomStore.blossomList.FirstOrDefault(v => v.Id == id);
-            //blossom.Name = blossomDto.Name;
-            //blossom.Price = blossomDto.Price;
-            //blossom.ProductDescrip = blossomDto.ProductDescrip;
-            //blossom.Brand = blossomDto.Brand;
-
-            Blossom model = new()
-            {
-                Id = blossomDto.Id,
-                Name = blossomDto.Name,
-                ProductDescrip = blossomDto.ProductDescrip,
-                Price = blossomDto.Price,
-                Brand = blossomDto.Brand,
-                ImageUrl = blossomDto.ImageUrl,
-                
-            };
+            
+            Blossom model = _mapper.Map<Blossom>(updateDto);
+            
             _db.Blossoms.Update(model);
-            _db.SaveChanges();
+            await _db.SaveChangesAsync();
 
             return NoContent();
-
         }
 
         [HttpPatch("{id:int}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public IActionResult UpdatePartialProduct(int id, JsonPatchDocument <BlossomDto> patchDto)
+        public async Task<IActionResult> UpdatePartialProduct(int id, JsonPatchDocument <BlossomUpdateDto> patchDto)
         {
             if (patchDto == null || id ==0)
             {
                 return BadRequest();
             }
-            var blossom = _db.Blossoms.AsNoTracking().FirstOrDefault(v => v.Id == id);
+            var blossom = await _db.Blossoms.AsNoTracking().FirstOrDefaultAsync(v => v.Id == id);
 
-            BlossomDto blossomDto = new()
-            {
-                Id = blossom.Id,
-                Name = blossom.Name,
-                ProductDescrip = blossom.ProductDescrip,
-                Price = blossom.Price,
-                Brand = blossom.Brand,
-                ImageUrl = blossom.ImageUrl,
-            };
+            BlossomUpdateDto blossomDto = _mapper.Map<BlossomUpdateDto>(blossom);
 
             if (blossom == null) return BadRequest();
 
@@ -176,19 +150,10 @@ namespace Blossom_API.Controllers
                 return BadRequest(ModelState);
             }
 
-            Blossom model = new()
-            {
-                Id = blossom.Id,
-                Name = blossom.Name,
-                ProductDescrip = blossom.ProductDescrip,
-                Price = blossom.Price,
-                Brand = blossom.Brand,
-                ImageUrl = blossom.ImageUrl,
-
-            };
-
+            Blossom model = _mapper.Map<Blossom>(blossomDto);
+            
             _db.Blossoms.Update(model);
-            _db.SaveChanges();
+            await _db.SaveChangesAsync();
             return NoContent();
 
         }
